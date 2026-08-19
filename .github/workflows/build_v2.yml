@@ -1,0 +1,60 @@
+name: Build Tico Dolphin WW Performance
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkita64:latest
+
+    steps:
+      - name: Clone Tico Dolphin
+        run: |
+          set -eux
+          git clone --recursive https://github.com/ticohq/tico-dolphin.git /work/core
+          cd /work/core
+          git submodule update --init --recursive
+
+      - name: Add Wind Waker performance profile
+        env:
+          WW_PROFILE_B64: "IyBCRUdJTiBUSUNPX1dXX1BFUkYKW0NvcmVdCkNQVVRocmVhZCA9IFRydWUKRFNQSExFID0gVHJ1ZQpTeW5jR1BVID0gRmFsc2UKUHJlY2lzaW9uRnJhbWVUaW1pbmcgPSBGYWxzZQpPdmVyY2xvY2tFbmFibGUgPSBUcnVlCk92ZXJjbG9jayA9IDAuODUKCltWaWRlb19TZXR0aW5nc10KSW50ZXJuYWxSZXNvbHV0aW9uID0gMQpNU0FBID0gMQpTU0FBID0gRmFsc2UKRmFzdERlcHRoQ2FsYyA9IFRydWUKRW5hYmxlUGl4ZWxMaWdodGluZyA9IEZhbHNlCkhpcmVzVGV4dHVyZXMgPSBGYWxzZQpDYWNoZUhpcmVzVGV4dHVyZXMgPSBGYWxzZQpCYWNrZW5kTXVsdGl0aHJlYWRpbmcgPSBUcnVlCgpbVmlkZW9fRW5oYW5jZW1lbnRzXQpNYXhBbmlzb3Ryb3B5ID0gMApBcmJpdHJhcnlNaXBtYXBEZXRlY3Rpb24gPSBUcnVlCgpbVmlkZW9fSGFja3NdCkVGQkFjY2Vzc0VuYWJsZSA9IFRydWUKRUZCVG9UZXh0dXJlRW5hYmxlID0gRmFsc2UKVklTa2lwID0gRmFsc2UKRGVmZXJFRkJDb3BpZXMgPSBUcnVlClNraXBEdXBsaWNhdGVYRkJzID0gVHJ1ZQpCQm94RW5hYmxlID0gRmFsc2UKRUZCRW11bGF0ZUZvcm1hdENoYW5nZXMgPSBGYWxzZQojIEVORCBUSUNPX1dXX1BFUkYK"
+        run: |
+          set -eux
+          TARGET=/work/core/Data/Sys/GameSettings/GZL.ini
+          mkdir -p "$(dirname "$TARGET")"
+          printf '%s' "$WW_PROFILE_B64" | base64 -d > /tmp/ww.ini
+          printf '\n\n' >> "$TARGET"
+          cat /tmp/ww.ini >> "$TARGET"
+          tail -n 70 "$TARGET"
+
+      - name: Build NRO
+        env:
+          TICO_NRO_VERSION: "0.0.8-wwperf"
+          CFLAGS: "-O3 -DNDEBUG -mcpu=cortex-a57 -mtune=cortex-a57"
+          CXXFLAGS: "-O3 -DNDEBUG -mcpu=cortex-a57 -mtune=cortex-a57"
+        run: |
+          set -eux
+          cd /work/core
+          chmod +x build_dolphin_standalone_nro.sh
+          ./build_dolphin_standalone_nro.sh
+
+      - name: Copy result
+        run: |
+          set -eux
+          cp /work/core/build_nx_standalone/dolphin.nro "$GITHUB_WORKSPACE/tico-dolphin-ww-performance.nro"
+          sha256sum "$GITHUB_WORKSPACE/tico-dolphin-ww-performance.nro"
+
+      - name: Upload NRO
+        uses: actions/upload-artifact@v4
+        with:
+          name: tico-dolphin-ww-performance
+          path: tico-dolphin-ww-performance.nro
+          if-no-files-found: error
