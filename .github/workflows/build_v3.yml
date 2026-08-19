@@ -1,0 +1,67 @@
+name: Build Tico Dolphin WW Stable Performance
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkita64:latest
+
+    steps:
+      - name: Clone official Tico Dolphin 0.0.8
+        run: |
+          set -eux
+          git clone --recursive --branch 0.0.8 https://github.com/ticohq/tico-dolphin.git /work/core
+          cd /work/core
+          git submodule update --init --recursive
+
+      - name: Add Wind Waker profile
+        env:
+          WW_PROFILE_B64: "IyBCRUdJTiBUSUNPX1dXX1BFUkYKW0NvcmVdCkNQVVRocmVhZCA9IFRydWUKRFNQSExFID0gVHJ1ZQpTeW5jR1BVID0gRmFsc2UKUHJlY2lzaW9uRnJhbWVUaW1pbmcgPSBGYWxzZQpPdmVyY2xvY2tFbmFibGUgPSBUcnVlCk92ZXJjbG9jayA9IDAuODUKCltWaWRlb19TZXR0aW5nc10KSW50ZXJuYWxSZXNvbHV0aW9uID0gMQpNU0FBID0gMQpTU0FBID0gRmFsc2UKRmFzdERlcHRoQ2FsYyA9IFRydWUKRW5hYmxlUGl4ZWxMaWdodGluZyA9IEZhbHNlCkhpcmVzVGV4dHVyZXMgPSBGYWxzZQpDYWNoZUhpcmVzVGV4dHVyZXMgPSBGYWxzZQpCYWNrZW5kTXVsdGl0aHJlYWRpbmcgPSBUcnVlCgpbVmlkZW9fRW5oYW5jZW1lbnRzXQpNYXhBbmlzb3Ryb3B5ID0gMApBcmJpdHJhcnlNaXBtYXBEZXRlY3Rpb24gPSBUcnVlCgpbVmlkZW9fSGFja3NdCkVGQkFjY2Vzc0VuYWJsZSA9IFRydWUKRUZCVG9UZXh0dXJlRW5hYmxlID0gRmFsc2UKVklTa2lwID0gRmFsc2UKRGVmZXJFRkJDb3BpZXMgPSBUcnVlClNraXBEdXBsaWNhdGVYRkJzID0gVHJ1ZQpCQm94RW5hYmxlID0gRmFsc2UKRUZCRW11bGF0ZUZvcm1hdENoYW5nZXMgPSBGYWxzZQojIEVORCBUSUNPX1dXX1BFUkYK"
+        run: |
+          set -eux
+          TARGET=/work/core/Data/Sys/GameSettings/GZL.ini
+          mkdir -p "$(dirname "$TARGET")"
+          [ -f "$TARGET" ] || touch "$TARGET"
+          printf '\n\n' >> "$TARGET"
+          printf '%s' "$WW_PROFILE_B64" | base64 -d >> "$TARGET"
+          tail -n 70 "$TARGET"
+
+      - name: Make build deterministic
+        run: |
+          set -eux
+          cd /work/core
+          # Official script uses all reported CPUs. For GitHub/container builds,
+          # keep it serial so the first real compiler error is visible and
+          # memory pressure is minimized.
+          sed -i 's/-j"$(nproc)"/-j1/' build_dolphin_standalone_nro.sh
+          grep 'cmake --build' build_dolphin_standalone_nro.sh
+
+      - name: Build NRO
+        run: |
+          set -o pipefail
+          cd /work/core
+          chmod +x build_dolphin_standalone_nro.sh
+          ./build_dolphin_standalone_nro.sh 2>&1 | tee /tmp/build.log
+
+      - name: Copy result
+        run: |
+          set -eux
+          test -f /work/core/build_nx_standalone/dolphin.nro
+          cp /work/core/build_nx_standalone/dolphin.nro "$GITHUB_WORKSPACE/tico-dolphin-ww-performance.nro"
+          sha256sum "$GITHUB_WORKSPACE/tico-dolphin-ww-performance.nro"
+
+      - name: Upload NRO
+        uses: actions/upload-artifact@v4
+        with:
+          name: tico-dolphin-ww-performance
+          path: tico-dolphin-ww-performance.nro
+          if-no-files-found: error
