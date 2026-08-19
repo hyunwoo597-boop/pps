@@ -1,0 +1,95 @@
+name: Build Tico Dolphin Wind Waker Performance Core
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkita64:latest
+
+    steps:
+      - name: Install host tools
+        run: |
+          apt-get update
+          apt-get install -y git cmake ninja-build python3
+
+      - name: Clone Tico Dolphin 0.0.8
+        run: |
+          git clone --recursive --branch 0.0.8 https://github.com/ticohq/tico-dolphin.git /work/core
+          cd /work/core
+          git submodule update --init --recursive
+
+      - name: Apply Wind Waker performance profile
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("/work/core/Data/Sys/GameSettings/GZL.ini")
+          s = p.read_text(encoding="utf-8", errors="replace") if p.exists() else ""
+
+          block = """
+# BEGIN TICO_WW_PERF
+[Core]
+CPUThread = True
+DSPHLE = True
+SyncGPU = False
+PrecisionFrameTiming = False
+OverclockEnable = True
+Overclock = 0.85
+
+[Video_Settings]
+InternalResolution = 1
+MSAA = 1
+SSAA = False
+FastDepthCalc = True
+EnablePixelLighting = False
+HiresTextures = False
+CacheHiresTextures = False
+BackendMultithreading = True
+
+[Video_Enhancements]
+MaxAnisotropy = 0
+ArbitraryMipmapDetection = True
+
+[Video_Hacks]
+EFBAccessEnable = True
+EFBToTextureEnable = False
+VISkip = False
+DeferEFBCopies = True
+SkipDuplicateXFBs = True
+BBoxEnable = False
+EFBEmulateFormatChanges = False
+# END TICO_WW_PERF
+"""
+
+          if "# BEGIN TICO_WW_PERF" not in s:
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_text(s.rstrip() + "\n\n" + block.strip() + "\n", encoding="utf-8")
+
+          print(p.read_text(encoding="utf-8", errors="replace")[-2500:])
+          PY
+
+      - name: Build optimized NRO
+        env:
+          CFLAGS: "-O3 -DNDEBUG -mcpu=cortex-a57 -mtune=cortex-a57 -ffunction-sections -fdata-sections"
+          CXXFLAGS: "-O3 -DNDEBUG -mcpu=cortex-a57 -mtune=cortex-a57 -ffunction-sections -fdata-sections"
+          LDFLAGS: "-Wl,--gc-sections"
+          TICO_NRO_VERSION: "0.0.8-wwperf"
+        run: |
+          cd /work/core
+          chmod +x build_dolphin_standalone_nro.sh
+          ./build_dolphin_standalone_nro.sh
+
+      - name: Prepare output
+        run: |
+          cp /work/core/build_nx_standalone/dolphin.nro "$GITHUB_WORKSPACE/tico-dolphin-ww-performance.nro"
+          sha256sum "$GITHUB_WORKSPACE/tico-dolphin-ww-performance.nro"
+
+      - name: Upload NRO
+        uses: actions/upload-artifact@v4
+        with:
+          name: tico-dolphin-ww-performance
+          path: tico-dolphin-ww-performance.nro
+          if-no-files-found: error
